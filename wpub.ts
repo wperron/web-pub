@@ -81,7 +81,7 @@ async function* getFiles(
   }
 }
 
-async function main(): Promise<void> {
+function main(): void {
   if (args.h ?? args.help) {
     console.log(`Deno S3 module uploader
     uploads the content of a directory to S3
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     region: Deno.env.get("AWS_REGION") ?? "",
   });
 
-  await pooledMap(20, getFiles(target), async ([path, key, contentType]) => {
+  pooledMap(20, getFiles(target), async ([path, key, contentType]) => {
     const res = await bucket.putObject(
       key,
       await readAll(await Deno.open(path)),
