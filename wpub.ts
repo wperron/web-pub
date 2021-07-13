@@ -18,26 +18,10 @@ import {
   posix,
 } from "https://deno.land/std@0.100.0/path/mod.ts";
 import { pooledMap } from "https://deno.land/std@0.100.0/async/pool.ts";
-import { parse } from "https://deno.land/std@0.100.0/flags/mod.ts";
 import { readAll } from "https://deno.land/std@0.100.0/io/util.ts";
 
-export interface S3UploaderArgs {
-  _: string[];
-  // -b --bucket
-  b: string;
-  bucket: string;
-  // -v --version
-  v: string;
-  version: string;
-  // -h --help
-  h?: boolean;
-  help?: boolean;
-}
-
-const args = parse(Deno.args) as S3UploaderArgs;
-const target = posix.resolve(args._[0] ?? "");
-const modname = basename(target);
-const version = args.v ?? args.version ?? "unstable";
+import { parse, HELPTEXT } from "./config/args.ts";
+import type { Args } from "./config/args.ts";
 
 const MEDIA_TYPES: Record<string, string> = {
   ".md": "text/markdown",
@@ -61,6 +45,7 @@ const MEDIA_TYPES: Record<string, string> = {
  */
 async function* getFiles(
   target: string,
+  version: string,
 ): AsyncGenerator<[string, string, string]> {
   for await (
     const entry of walk(target, {
@@ -71,7 +56,7 @@ async function* getFiles(
     })
   ) {
     if (entry.isFile) {
-      const relative = entry.path.slice(entry.path.indexOf(modname));
+      const relative = entry.path.slice(entry.path.indexOf(basename(target)));
       const parts = relative.split("/");
       parts[0] = `${parts[0]}@${version}`;
       const key = parts.join("/");
@@ -82,33 +67,25 @@ async function* getFiles(
 }
 
 function main(): void {
+  const args: Args = { _: [] };
+  parse(args, Deno.args);
+  const target = posix.resolve(args._[0] ?? "");
+  const version = args.v ?? args.version ?? "unstable";
+
   if (args.h ?? args.help) {
-    console.log(`Deno S3 module uploader
-    uploads the content of a directory to S3
-
-  INSTALL:
-    deno install --allow-net --allow-read https://raw.githubusercontent.com/wperron/deno.wperron.io/1.0.2/s3-upload.ts
-
-  USAGE:
-    s3-upload [path] [options]
-
-  OPTIONS:
-    -h, --help              Prints help information
-    -b, --bucket <BUCKET>   Set port
-    -v, --version <VERSION> The version of the module being uploaded. defaults to \`unstable\`
-`);
-    Deno.exit();
+    console.log(HELPTEXT);
+    Deno.exit(0);
   }
 
   const bucket = new S3Bucket({
-    bucket: args.b ?? args.bucket,
+    bucket: args.b ?? args.bucket ?? "",
     accessKeyID: Deno.env.get("AWS_ACCESS_KEY_ID") ?? "",
     secretKey: Deno.env.get("AWS_SECRET_ACCESS_KEY") ?? "",
     sessionToken: Deno.env.get("AWS_SESSION_TOKEN"),
     region: Deno.env.get("AWS_REGION") ?? "",
   });
 
-  pooledMap(20, getFiles(target), async ([path, key, contentType]) => {
+  pooledMap(20, getFiles(target, version), async ([path, key, contentType]) => {
     const res = await bucket.putObject(
       key,
       await readAll(await Deno.open(path)),
